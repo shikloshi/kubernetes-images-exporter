@@ -15,11 +15,6 @@ import (
 	"k8s.io/kubernetes/pkg/util/parsers"
 )
 
-type ClusterData struct {
-	namespace   string
-	clusterName string
-}
-
 type ImageData struct {
 	repo   string
 	digest string
@@ -34,17 +29,27 @@ func main() {
 
 	images = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "deployed_images",
-		Help: "The total number of processed events",
+		Help: "The number of deployed images",
 	}, []string{
-		"repo", "tag", "digest", "pod", "namespace",
+		// image repo
+		"repo",
+		// image tag
+		"tag",
+		// image digest if exists
+		"digest",
+		// pod which runs this image
+		"pod",
+		// namespace of which the pod is running
+		"namespace",
 	})
 
 	prometheus.MustRegister(images)
 
 	informer, err := newPodInformer()
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err.Error())
 	}
+
 	stopper := make(chan struct{})
 	defer close(stopper)
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -77,11 +82,13 @@ func onDelete(obj interface{}) {
 	containers := pod.Spec.Containers
 	for _, container := range containers {
 		ig := newImageData(container.Image)
-		images.WithLabelValues(ig.repo, ig.tag, ig.digest).Add(-1)
+		images.WithLabelValues(ig.repo, ig.tag, ig.digest, pod.Name, pod.Namespace).Add(-1)
 		log.WithFields(log.Fields{
-			"repo":   ig.repo,
-			"tag":    ig.tag,
-			"digest": ig.digest,
+			"repo":      ig.repo,
+			"tag":       ig.tag,
+			"digest":    ig.digest,
+			"pod":       pod.Name,
+			"namespace": pod.Namespace,
 		}).Info()
 	}
 }
