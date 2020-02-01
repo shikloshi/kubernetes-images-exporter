@@ -1,9 +1,10 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
@@ -25,36 +26,25 @@ type ImageData struct {
 	tag    string
 }
 
-var imagesMap map[ImageData]int
-
 var images *prometheus.GaugeVec
 
 func main() {
+
+	log.SetFormatter(&log.JSONFormatter{})
 
 	images = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "deployed_images",
 		Help: "The total number of processed events",
 	}, []string{
-		"repo", "tag", "digest",
+		"repo", "tag", "digest", "pod", "namespace",
 	})
 
 	prometheus.MustRegister(images)
 
-	kubeconfig := os.Getenv("KUBECONFIG")
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	informer, err := newPodInformer()
 	if err != nil {
 		panic(err.Error())
 	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	imagesMap = make(map[ImageData]int, 0)
-
-	factory := informers.NewSharedInformerFactory(clientset, 0)
-	informer := factory.Core().V1().Pods().Informer()
 	stopper := make(chan struct{})
 	defer close(stopper)
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -66,29 +56,49 @@ func main() {
 	informer.Run(stopper)
 }
 
+func newPodInformer() (cache.SharedIndexInformer, error) {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	factory := informers.NewSharedInformerFactory(clientset, 0)
+	return factory.Core().V1().Pods().Informer(), nil
+}
+
 func onDelete(obj interface{}) {
-	log.Print("on delete")
 	pod := obj.(*corev1.Pod)
 	containers := pod.Spec.Containers
 	for _, container := range containers {
 		ig := newImageData(container.Image)
 		images.WithLabelValues(ig.repo, ig.tag, ig.digest).Add(-1)
-		imagesMap[*ig] -= 1
+		log.WithFields(log.Fields{
+			"repo":   ig.repo,
+			"tag":    ig.tag,
+			"digest": ig.digest,
+		}).Info()
 	}
 }
 
 func onAdd(obj interface{}) {
-	log.Print("on add")
 	pod := obj.(*corev1.Pod)
 	containers := pod.Spec.Containers
 	for _, container := range containers {
 		ig := newImageData(container.Image)
-		if _, exists := imagesMap[*ig]; !exists {
-			imagesMap[*ig] = 1
-		} else {
-			imagesMap[*ig] += 1
-		}
-		images.WithLabelValues(ig.repo, ig.tag, ig.digest).Inc()
+		images.WithLabelValues(ig.repo, ig.tag, ig.digest, pod.Name, pod.Namespace).Inc()
+		log.WithFields(log.Fields{
+			"pod":       pod.Name,
+			"namespace": pod.Namespace,
+			"repo":      ig.repo,
+			"tag":       ig.tag,
+			"digest":    ig.digest,
+		}).Info()
 	}
 
 }
