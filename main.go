@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 
@@ -10,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/pkg/util/parsers"
@@ -23,6 +25,7 @@ type ImageData struct {
 
 var images *prometheus.GaugeVec
 
+// ./kubernetes-image-exporter --port <port> --local --namespaces="..." --log
 func main() {
 
 	log.SetFormatter(&log.JSONFormatter{})
@@ -45,7 +48,14 @@ func main() {
 
 	prometheus.MustRegister(images)
 
-	informer, err := newPodInformer()
+	local := true
+
+	k8sConfig, err := createKubernetesConfig(local)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	informer, err := newPodInformer(k8sConfig)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -56,18 +66,25 @@ func main() {
 		AddFunc:    onAdd,
 		DeleteFunc: onDelete,
 	})
-	http.Handle("/metrics", prometheus.Handler())
-	go http.ListenAndServe(":2112", nil)
+
+	promMetricsEndpoint := getEnvWithDefault("K8S_IMAGE_EXOPRTER_ENDPOINT", "/metrics")
+	promPort := getEnvWithDefault("K8S_IMAGE_EXOPRTER_PORT", "9090")
+
+	http.Handle(promMetricsEndpoint, prometheus.Handler())
+	go http.ListenAndServe(fmt.Sprintf(":%s", promPort), nil)
 	informer.Run(stopper)
 }
 
-func newPodInformer() (cache.SharedIndexInformer, error) {
-	kubeconfig := os.Getenv("KUBECONFIG")
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		return nil, err
+func createKubernetesConfig(local bool) (*rest.Config, error) {
+	if local {
+		kubeconfig := os.Getenv("KUBECONFIG")
+		return clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
+	return rest.InClusterConfig()
 
+}
+
+func newPodInformer(config *rest.Config) (cache.SharedIndexInformer, error) {
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -117,4 +134,12 @@ func newImageData(image string) *ImageData {
 		tag:    tag,
 		digest: digest,
 	}
+}
+
+func getEnvWithDefault(key, defaultValue string) string {
+	val := os.Getenv(key)
+	if len(val) == 0 {
+		return defaultValue
+	}
+	return val
 }
