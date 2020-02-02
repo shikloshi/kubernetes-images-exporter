@@ -20,8 +20,8 @@ version: 0.1.0
 # incremented each time you make changes to the application.
 appVersion: 0.0.1
 
-dependencies:
-    - name: prometheus
-      version: "10.4.0"
-      repository: https://kubernetes-charts.storage.googleapis.com/
-      condition: prometheus-operator.enabled
+#dependencies:
+    #- chart: prometheus-operator
+      #version: 8.7.0
+      #repository: https://kubernetes-charts.storage.googleapis.com/
+      #condition: prometheus-operator.enabled

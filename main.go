@@ -71,6 +71,12 @@ func main() {
 	promPort := getEnvWithDefault("K8S_IMAGE_EXOPRTER_PORT", "9090")
 
 	http.Handle(promMetricsEndpoint, prometheus.Handler())
+
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	})
+
 	go http.ListenAndServe(fmt.Sprintf(":%s", promPort), nil)
 	informer.Run(stopper)
 }
