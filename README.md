@@ -17,6 +17,15 @@ helm3 install kubernetes-images-exporter ./deploy
 
 You can bind `kubernetes-images-exporter` ServicAccount to `view` ClusterRole.
 
+## Running 
+
+### Example
+```
+deployed_images{digest="",namespace="default",pod="prometheus-operator-prometheus-node-exporter-mfvvw",repo="quay.io/prometheus/node-exporter",tag="v0.18.1"} 1
+deployed_images{digest="",namespace="default",pod="prometheus-prometheus-operator-prometheus-0",repo="quay.io/coreos/configmap-reload",tag="v0.0.1"} 1
+deployed_images{digest="",namespace="default",pod="prometheus-prometheus-operator-prometheus-0",repo="quay.io/coreos/prometheus-config-reloader",tag="v0.35.0"} 1
+deployed_images{digest="",namespace="default",pod="prometheus-prometheus-operator-prometheus-0",repo="quay.io/prometheus/prometheus",tag="v2.15.2"} 1
+```
 ## Configuration
 
 TBD
