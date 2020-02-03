@@ -64,6 +64,3 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
-
-prometheus-operator:
-    enabled: false
