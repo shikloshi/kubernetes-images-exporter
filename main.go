@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/urfave/cli/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -17,18 +18,47 @@ import (
 	"k8s.io/kubernetes/pkg/util/parsers"
 )
 
-type ImageData struct {
-	repo   string
-	digest string
-	tag    string
-}
-
 var images *prometheus.GaugeVec
 
-// ./kubernetes-image-exporter --port <port> --local --namespaces="..." --log
 func main() {
+	var port string
+	var endpoint string
 
 	log.SetFormatter(&log.JSONFormatter{})
+
+	flags := []cli.Flag{
+		&cli.StringFlag{
+			Name:        "port",
+			Value:       ":9090",
+			Usage:       "port for metrics http endpoint",
+			Destination: &port,
+		},
+		&cli.StringFlag{
+			Name:        "endpoint",
+			Value:       "/metrics",
+			Usage:       "endpoint for metrics scraping",
+			Destination: &endpoint,
+		},
+	}
+
+	app := cli.App{
+		Name: "kubernetes-images-exporter",
+		Action: func(context *cli.Context) error {
+			return app(context)
+		},
+		Flags: flags,
+	}
+
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+}
+
+// ./kubernetes-image-exporter --port <port> --local --namespaces="..." --log
+func app(context *cli.Context) error {
+	promPort := context.String("port")
+	promMetricsEndpoint := context.String("endpoint")
 
 	images = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "deployed_images",
@@ -52,12 +82,12 @@ func main() {
 
 	k8sConfig, err := createKubernetesConfig(local)
 	if err != nil {
-		log.Fatal(err.Error())
+		return nil
 	}
 
 	informer, err := newPodInformer(k8sConfig)
 	if err != nil {
-		log.Fatal(err.Error())
+		return err
 	}
 
 	stopper := make(chan struct{})
@@ -66,9 +96,6 @@ func main() {
 		AddFunc:    onAdd,
 		DeleteFunc: onDelete,
 	})
-
-	promMetricsEndpoint := getEnvWithDefault("K8S_IMAGE_EXOPRTER_ENDPOINT", "/metrics")
-	promPort := getEnvWithDefault("K8S_IMAGE_EXOPRTER_PORT", "9090")
 
 	http.Handle(promMetricsEndpoint, prometheus.Handler())
 
@@ -79,6 +106,7 @@ func main() {
 
 	go http.ListenAndServe(fmt.Sprintf(":%s", promPort), nil)
 	informer.Run(stopper)
+	return nil
 }
 
 func createKubernetesConfig(local bool) (*rest.Config, error) {
@@ -104,12 +132,12 @@ func onDelete(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	containers := pod.Spec.Containers
 	for _, container := range containers {
-		ig := newImageData(container.Image)
-		images.WithLabelValues(ig.repo, ig.tag, ig.digest, pod.Name, pod.Namespace).Add(-1)
+		repo, tag, digest, _ := parsers.ParseImageName(container.Image)
+		images.WithLabelValues(repo, tag, digest, pod.Name, pod.Namespace).Add(-1)
 		log.WithFields(log.Fields{
-			"repo":      ig.repo,
-			"tag":       ig.tag,
-			"digest":    ig.digest,
+			"repo":      repo,
+			"tag":       tag,
+			"digest":    digest,
 			"pod":       pod.Name,
 			"namespace": pod.Namespace,
 		}).Info()
@@ -120,32 +148,14 @@ func onAdd(obj interface{}) {
 	pod := obj.(*corev1.Pod)
 	containers := pod.Spec.Containers
 	for _, container := range containers {
-		ig := newImageData(container.Image)
-		images.WithLabelValues(ig.repo, ig.tag, ig.digest, pod.Name, pod.Namespace).Inc()
+		repo, tag, digest, _ := parsers.ParseImageName(container.Image)
+		images.WithLabelValues(repo, tag, digest, pod.Name, pod.Namespace).Inc()
 		log.WithFields(log.Fields{
 			"pod":       pod.Name,
 			"namespace": pod.Namespace,
-			"repo":      ig.repo,
-			"tag":       ig.tag,
-			"digest":    ig.digest,
+			"repo":      repo,
+			"tag":       tag,
+			"digest":    digest,
 		}).Info()
 	}
-
-}
-
-func newImageData(image string) *ImageData {
-	repo, tag, digest, _ := parsers.ParseImageName(image)
-	return &ImageData{
-		repo:   repo,
-		tag:    tag,
-		digest: digest,
-	}
-}
-
-func getEnvWithDefault(key, defaultValue string) string {
-	val := os.Getenv(key)
-	if len(val) == 0 {
-		return defaultValue
-	}
-	return val
 }

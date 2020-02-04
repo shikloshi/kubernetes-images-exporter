@@ -13,7 +13,7 @@ helm3 install kubernetes-images-exporter ./deploy
 
 ## RBAC
 
-`kubernetes-images-exporter` should be allowed to `read,list,wathc` all `pod` resources from core API group.
+`kubernetes-images-exporter` should be allowed to `read,list,watch` all `pod` resources from core API group.
 
 You can bind `kubernetes-images-exporter` ServicAccount to `view` ClusterRole.
 
