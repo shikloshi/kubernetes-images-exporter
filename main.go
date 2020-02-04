@@ -82,7 +82,7 @@ func app(context *cli.Context) error {
 
 	k8sConfig, err := createKubernetesConfig(local)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	informer, err := newPodInformer(k8sConfig)
